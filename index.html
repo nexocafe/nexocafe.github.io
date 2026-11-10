@@ -890,7 +890,7 @@ const s=document.getElementById('barSum'); if(s){const w=document.createElement(
 <script>
 // ===== Cuentas de cliente + Tarjeta Nexo + mapa (página v2, 11/2026) =====
 // API: Apps Script "Nexo Clientes" (hoja Clientes_Nexo). Vacío = la página funciona como antes, sin cuentas.
-const API_URL = "@@API_URL@@";
+const API_URL = "https://script.google.com/macros/s/AKfycbwK701ZNRHrXrljucBxXfoMbpHuQ7JUyORR5X9BUD9EXGVsxfC05QpuYCJaj5H75EJbVA/exec";
 const LS_CLI = "nx_cli", META = 10, MIN_SELLO = 150, PREMIO_TXT = "🎁 Premio Tarjeta Nexo: ";
 let CLI = null, MAPPOS = null, PREMIO_OP = "";
 const esPremio = n => String(n || "").startsWith(PREMIO_TXT);
@@ -1072,8 +1072,12 @@ $("#mapYo").onclick = () => {
 async function buscarLugar() {
   const q = $("#mapQ").value.trim(); if (!q) return; $("#mapNote").textContent = "Buscando…";
   try {
-    const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=mx&viewbox=-105.05,21.55,-104.80,21.35&q=" + encodeURIComponent(q + ", Nayarit"));
-    const j = await r.json(); if (j[0]) { MAP.setView([+j[0].lat, +j[0].lon], 17); $("#mapNote").textContent = "Mueve el mapa hasta que el pin quede en tu casa." } else $("#mapNote").textContent = "No lo encontramos. Prueba con la colonia o mueve el mapa.";
+    let j = [];
+    for (const qq of [q + ", Xalisco, Nayarit", q + ", Nayarit", q.split(",").slice(-1)[0] + ", Xalisco, Nayarit"]) {
+      const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=mx&viewbox=-105.05,21.55,-104.80,21.35&bounded=1&q=" + encodeURIComponent(qq));
+      j = await r.json(); if (j[0]) break;
+    }
+    if (j[0]) { MAP.setView([+j[0].lat, +j[0].lon], 17); $("#mapNote").textContent = "Mueve el mapa hasta que el pin quede en tu casa." } else $("#mapNote").textContent = "No lo encontramos. Prueba con la colonia o mueve el mapa.";
   } catch (e) { $("#mapNote").textContent = "No se pudo buscar. Mueve el mapa a mano." }
 }
 $("#mapBuscar").onclick = buscarLugar; $("#mapQ").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); buscarLugar() } });
