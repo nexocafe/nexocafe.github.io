@@ -299,16 +299,6 @@ select.sel:focus{outline:none;border-color:var(--or)}
   <button type="button" class="bvb2" id="lealOut" hidden>No soy yo · salir</button>
 </div></div>
 
-<!-- Mapa para la dirección -->
-<div class="veil" id="mapVeil" hidden><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mapTitle" style="gap:10px">
-  <button class="x" data-close="mapVeil">Cerrar</button>
-  <h3 id="mapTitle">¿Dónde te lo llevamos?</h3>
-  <div class="maprow"><input type="search" id="mapQ" placeholder="Busca tu calle o colonia"><button type="button" class="btn" id="mapBuscar">Buscar</button></div>
-  <button type="button" class="bvb2" id="mapYo" style="margin:0">📍 Usar mi ubicación</button>
-  <div id="mapBox"></div>
-  <p class="note" id="mapNote" style="margin:0">Mueve el mapa para poner el pin en tu casa.</p>
-  <button type="button" class="bvb1" id="mapOk" style="margin:0">Confirmar ubicación</button>
-</div></div>
 <div class="veil" id="optVeil" hidden><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="optTitle">
   <button class="x" data-close="optVeil">Cerrar</button>
   <h3 id="optTitle"></h3>
@@ -883,9 +873,12 @@ const s=document.getElementById('barSum'); if(s){const w=document.createElement(
 .dchip.sel{border-color:var(--or);background:#2b2017}
 .mapbtn{background:var(--bg);border:1.5px dashed var(--or);border-radius:10px;padding:11px 12px;color:var(--or);font:inherit;font-weight:700;font-size:14.5px;text-align:left;cursor:pointer}
 .mapbtn small{color:var(--muted);font-weight:500}.mapbtn.ok{border-style:solid;color:var(--ok)}
-#mapBox{height:52vh;min-height:280px;border-radius:12px;overflow:hidden;position:relative;background:#ddd}
+#mapBox{height:240px;border-radius:12px;border:1.5px solid var(--line);overflow:hidden;position:relative;background:#ddd}
 #mapBox::after{content:"";position:absolute;left:50%;top:50%;width:34px;height:46px;margin:-46px 0 0 -17px;z-index:500;pointer-events:none;background:no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 32'%3E%3Cpath d='M12 0C5.4 0 0 5.2 0 11.7 0 20.5 12 32 12 32s12-11.5 12-20.3C24 5.2 18.6 0 12 0z' fill='%23F39A3D' stroke='%23141110' stroke-width='1.5'/%3E%3Ccircle cx='12' cy='11.5' r='4.5' fill='%23141110'/%3E%3C/svg%3E");filter:drop-shadow(0 3px 3px rgba(0,0,0,.4))}
 .maprow{display:flex;gap:8px}.maprow input{flex:1;min-width:0}
+.mapinline{display:grid;gap:8px;background:var(--bg);border:1.5px solid var(--or);border-radius:12px;padding:10px}
+.maphead{display:flex;justify-content:space-between;align-items:center;gap:8px}.maphead b{color:var(--or);font-size:14.5px}
+.mapyo{background:var(--or);color:var(--ink);border:0;border-radius:999px;padding:8px 12px;font:inherit;font-weight:700;font-size:13px;cursor:pointer}
 </style>
 <script>
 // ===== Cuentas de cliente + Tarjeta Nexo + mapa (página v2, 11/2026) =====
@@ -1017,32 +1010,31 @@ totals = function (isNew = false) {
   return t;
 };
 
-// ---------- direcciones guardadas + mapa ----------
+// ---------- direcciones guardadas + mapa (dentro del formulario) ----------
+let MAP = null, leafletCarga = null, mapTocado = false, geoTimer = null, moviendoCodigo = false;
 (function dirUI() {
   const wrap = $("#dirWrap");
   const saved = document.createElement("div"); saved.id = "dirSaved"; saved.className = "dirsaved"; wrap.insertBefore(saved, wrap.firstChild);
-  const mb = document.createElement("button"); mb.type = "button"; mb.id = "mapBtn"; mb.className = "mapbtn"; mb.innerHTML = "📍 Marcar mi casa en el mapa <small>(así te encontramos rápido)</small>";
-  $("#dir").after(mb); mb.onclick = abrirMapa;
+  const box = document.createElement("div"); box.className = "mapinline";
+  box.innerHTML = `<div class="maphead"><b>📍 Tu ubicación</b><button type="button" class="mapyo" id="mapYo">Usar mi ubicación</button></div><div id="mapBox"></div><p class="note" id="mapNote" style="margin:0">Escribe tu dirección arriba o mueve el mapa hasta que el pin quede en tu casa.</p>`;
+  $("#dir").after(box);
+  $("#mapYo").onclick = usarMiUbicacion;
   saved.addEventListener("click", e => {
     const b = e.target.closest("[data-di]"); if (!b) return; const i = b.dataset.di;
     saved.querySelectorAll("[data-di]").forEach(x => x.classList.toggle("sel", x === b));
-    if (i === "new") { $("#dir").value = ""; $("#ref").value = ""; MAPPOS = null; mapEstado(); $("#dir").focus(); return }
+    if (i === "new") { $("#dir").value = ""; $("#ref").value = ""; MAPPOS = null; mapTocado = false; $("#dir").focus(); return }
     const d = CLI.data.direcciones[+i]; $("#dir").value = d.texto || ""; $("#ref").value = d.ref || "";
-    MAPPOS = d.lat && d.lng ? { lat: d.lat, lng: d.lng } : null; mapEstado();
+    if (d.lat && d.lng) { MAPPOS = { lat: d.lat, lng: d.lng }; mapTocado = true; irA(d.lat, d.lng, 18) }
     const z = Object.keys(ZONAS).find(k => ZONAS[k].n === d.zona); if (z) { $("#zona").value = z; zonaManual = true; notaZona() } else $("#dir").dispatchEvent(new Event("input"));
     drawCart();
   });
+  $("#dir").addEventListener("input", () => { clearTimeout(geoTimer); const t = $("#dir").value.trim(); if (t.length >= 6) geoTimer = setTimeout(() => buscarDir(t), 1100) });
 })();
 function dirSaved() {
   const s = $("#dirSaved"); const L = CLI && CLI.tk && CLI.data && (CLI.data.direcciones || []).filter(d => !d.oculta) || [];
   if (!L.length) { s.innerHTML = ""; return }
   if (!s.innerHTML) s.innerHTML = `<div class="note">Tus direcciones:</div>` + L.map((d, i) => `<button type="button" class="dchip" data-di="${i}">🏠 ${escH(d.texto)}</button>`).join("") + `<button type="button" class="dchip" data-di="new">➕ Otra dirección</button>`;
 }
-function mapEstado() { const b = $("#mapBtn"); if (!b) return; b.classList.toggle("ok", !!MAPPOS); b.innerHTML = MAPPOS ? "✅ Ubicación marcada en el mapa <small>(toca para cambiarla)</small>" : "📍 Marcar mi casa en el mapa <small>(así te encontramos rápido)</small>" }
-const _drawCart = drawCart;
-drawCart = function () { _drawCart(); prefill(); dirSaved(); mapEstado() };
-
-let MAP = null, leafletCarga = null;
 function cargarLeaflet() {
   if (window.L) return Promise.resolve();
   if (leafletCarga) return leafletCarga;
@@ -1052,47 +1044,49 @@ function cargarLeaflet() {
   });
   return leafletCarga;
 }
-async function abrirMapa() {
-  $("#mapVeil").hidden = false; $("#mapNote").textContent = "Cargando mapa…";
+async function asegurarMapa() {
+  if ($("#dirWrap").hidden) return;
   try { await cargarLeaflet() } catch (e) { $("#mapNote").textContent = "No se pudo cargar el mapa. Escribe tu dirección y referencias."; return }
-  const c = MAPPOS || { lat: 21.4446, lng: -104.9014 };
   if (!MAP) {
-    MAP = L.map("mapBox", { zoomControl: true, attributionControl: true }).setView([c.lat, c.lng], MAPPOS ? 18 : 15);
+    const c = MAPPOS || { lat: 21.4446, lng: -104.9014 };
+    MAP = L.map("mapBox", { zoomControl: true, attributionControl: true, scrollWheelZoom: false }).setView([c.lat, c.lng], MAPPOS ? 18 : 15);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(MAP);
-  } else { MAP.setView([c.lat, c.lng], MAPPOS ? 18 : MAP.getZoom()) }
-  setTimeout(() => MAP.invalidateSize(), 200);
-  $("#mapNote").textContent = "Mueve el mapa hasta que el pin quede en tu casa.";
+    MAP.on("moveend", () => { if (moviendoCodigo) { moviendoCodigo = false; return } const p = MAP.getCenter(); MAPPOS = { lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6) }; mapTocado = true; $("#mapNote").textContent = "✅ Pin puesto. Si no es tu casa, mueve el mapa."; if (!$("#dir").value.trim()) llenarDir() });
+  }
+  setTimeout(() => MAP && MAP.invalidateSize(), 150);
 }
-$("#mapYo").onclick = () => {
-  if (!navigator.geolocation) { $("#mapNote").textContent = "Tu celular no permite compartir ubicación. Busca tu calle o mueve el mapa."; return }
-  $("#mapNote").textContent = "Buscando dónde estás…";
-  navigator.geolocation.getCurrentPosition(p => { if (MAP) MAP.setView([p.coords.latitude, p.coords.longitude], 18); $("#mapNote").textContent = "¡Listo! Ajusta el pin si hace falta y confirma." },
-    () => { $("#mapNote").textContent = "No nos diste permiso de ubicación. Busca tu calle o mueve el mapa." }, { enableHighAccuracy: true, timeout: 12000 });
-};
-async function buscarLugar() {
-  const q = $("#mapQ").value.trim(); if (!q) return; $("#mapNote").textContent = "Buscando…";
+function irA(lat, lng, z) { if (!MAP) return; moviendoCodigo = true; MAP.setView([lat, lng], z || 17); setTimeout(() => moviendoCodigo = false, 900) }
+async function buscarDir(t) {
+  await asegurarMapa(); if (!MAP) return;
   try {
     let j = [];
-    for (const qq of [q + ", Xalisco, Nayarit", q + ", Nayarit", q.split(",").slice(-1)[0] + ", Xalisco, Nayarit"]) {
+    for (const qq of [t + ", Xalisco, Nayarit", t + ", Nayarit", t.split(",").slice(-1)[0] + ", Xalisco, Nayarit"]) {
       const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=mx&viewbox=-105.05,21.55,-104.80,21.35&bounded=1&q=" + encodeURIComponent(qq));
       j = await r.json(); if (j[0]) break;
     }
-    if (j[0]) { MAP.setView([+j[0].lat, +j[0].lon], 17); $("#mapNote").textContent = "Mueve el mapa hasta que el pin quede en tu casa." } else $("#mapNote").textContent = "No lo encontramos. Prueba con la colonia o mueve el mapa.";
-  } catch (e) { $("#mapNote").textContent = "No se pudo buscar. Mueve el mapa a mano." }
+    if (j[0] && $("#dir").value.trim() === t) {
+      irA(+j[0].lat, +j[0].lon, 17); MAPPOS = { lat: +(+j[0].lat).toFixed(6), lng: +(+j[0].lon).toFixed(6) }; mapTocado = true;
+      $("#mapNote").textContent = "Te llevamos cerca de tu dirección. Mueve el mapa para dejar el pin justo en tu casa.";
+    } else if (!j[0]) $("#mapNote").textContent = "No encontramos esa calle en el mapa. Mueve el mapa hasta tu casa o usa tu ubicación.";
+  } catch (e) { }
 }
-$("#mapBuscar").onclick = buscarLugar; $("#mapQ").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); buscarLugar() } });
-$("#mapOk").onclick = async () => {
-  if (!MAP) return; const c = MAP.getCenter(); MAPPOS = { lat: Math.round(c.lat * 1e6) / 1e6, lng: Math.round(c.lng * 1e6) / 1e6 };
-  $("#mapVeil").hidden = true; mapEstado();
+function usarMiUbicacion() {
+  if (!navigator.geolocation) { $("#mapNote").textContent = "Tu celular no permite compartir ubicación. Mueve el mapa hasta tu casa."; return }
+  $("#mapNote").textContent = "Buscando dónde estás…";
+  navigator.geolocation.getCurrentPosition(async p => {
+    await asegurarMapa(); MAP.setView([p.coords.latitude, p.coords.longitude], 18);
+  }, () => { $("#mapNote").textContent = "No nos diste permiso de ubicación. Escribe tu dirección o mueve el mapa." }, { enableHighAccuracy: true, timeout: 12000 });
+}
+async function llenarDir() {
+  if (!MAPPOS) return;
   try {
     const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=18&addressdetails=1&lat=${MAPPOS.lat}&lon=${MAPPOS.lng}`); const j = await r.json(); const a = j.address || {};
     const txt = [[a.road, a.house_number].filter(Boolean).join(" "), a.neighbourhood || a.suburb, a.town || a.city || a.village].filter(Boolean).join(", ");
-    if (txt && !$("#dir").value.trim()) { $("#dir").value = txt; $("#dir").dispatchEvent(new Event("input")) }
-    else if (txt && !zonaManual) { const hit = ZONA_KW.find(([re]) => re.test(txt)); if (hit) { $("#zona").value = hit[1]; notaZona(); drawCart() } }
+    if (txt && !$("#dir").value.trim()) { $("#dir").value = txt; if (!zonaManual) { const hit = ZONA_KW.find(([re]) => re.test(txt)); if (hit) { $("#zona").value = hit[1]; notaZona(); drawCart() } } $("#mapNote").textContent = "✅ Pin puesto. Revisa que la dirección tenga tu número de casa." }
   } catch (e) { }
-  $("#dir").focus();
-};
-$("#mapVeil").addEventListener("click", e => { if (e.target.id === "mapVeil" || e.target.dataset.close === "mapVeil") $("#mapVeil").hidden = true });
+}
+const _drawCart = drawCart;
+drawCart = function () { _drawCart(); prefill(); dirSaved(); if (!$("#dirWrap").hidden) asegurarMapa() };
 
 // ---------- al enviar: registrar al cliente (si hace falta) ----------
 let reenviando = false;
@@ -1123,7 +1117,7 @@ $("#form").addEventListener("submit", () => {
   if (iRef >= 0) { const pre = (L[iRef].match(/^Ref\. ([NRL])/) || [, "R"])[1]; ref = pre + rnd; L[iRef] = "Ref. " + ref }
   const extra = [];
   if (tel.length === 10 && aqui && !L.some(x => /^Tel: /.test(x))) extra.push("Tel: " + tel);
-  if (t.dom && MAPPOS) extra.push(`📍 Ubicación: https://maps.google.com/?q=${MAPPOS.lat},${MAPPOS.lng}`);
+  if (t.dom && MAPPOS && mapTocado) extra.push(`📍 Ubicación: https://maps.google.com/?q=${MAPPOS.lat},${MAPPOS.lng}`);
   const prem = cart.find(l => esPremio(l.n)); if (prem) extra.push("🎁 PREMIO TARJETA NEXO: " + prem.n.slice(PREMIO_TXT.length) + " (va en $0)");
   if (tel.length === 10) extra.push(monto >= MIN_SELLO ? "🦆 Tarjeta Nexo: suma 1 sello" : "🦆 Tarjeta Nexo: no suma sello (menos de $150)");
   const iIns = L.findIndex(x => /^(Llegó por|Ref\. )/.test(x)); L.splice(iIns >= 0 ? iIns : L.length, 0, ...extra);
@@ -1138,7 +1132,7 @@ $("#form").addEventListener("submit", () => {
   const pint = d => { box.innerHTML = `<h3>Tu Tarjeta Nexo <span>${Math.min(d.sellos || 0, META)} / 10</span></h3><div class="bvg">${gridHTML(d.sellos, d.pendientes, monto >= MIN_SELLO)}</div><p>${prem ? "🎁 Tu premio va en este pedido. ¡Gracias por tu preferencia!" : monto >= MIN_SELLO ? "<b>¡+1 sello!</b> Se confirma cuando recibas tu pedido." : `Te faltaron <b>${money(MIN_SELLO - monto)}</b> para ganar sello. Pedidos de $150 o más suman.`}</p>` };
   pint({ ...d0, pendientes: (d0.pendientes || 0) + (monto >= MIN_SELLO ? 1 : 0) });
   api("pedido", { tel, nombre, tk: CLI && CLI.tel === tel ? CLI.tk || "" : "", ref, monto, premio: prem ? prem.n.slice(PREMIO_TXT.length) : "",
-    dir: t.dom ? { texto: $("#dir").value.trim(), zona: t.zona ? t.zona.n : "", ref: $("#ref").value.trim(), lat: MAPPOS && MAPPOS.lat, lng: MAPPOS && MAPPOS.lng } : null })
+    dir: t.dom ? { texto: $("#dir").value.trim(), zona: t.zona ? t.zona.n : "", ref: $("#ref").value.trim(), lat: mapTocado && MAPPOS ? MAPPOS.lat : null, lng: mapTocado && MAPPOS ? MAPPOS.lng : null } : null })
     .then(r => { if (r && r.ok) { pint(r); if (CLI && CLI.tel === tel) { CLI.data = { ...(CLI.data || {}), ...r }; cliSave(); $("#dirSaved").innerHTML = ""; cliBar() } } }).catch(() => { });
 });
 </script>
