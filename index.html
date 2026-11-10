@@ -540,7 +540,7 @@ const ORIGEN=(()=>{ const h=(location.hash||"").slice(1).toLowerCase(); return h
 if(ORIGEN==="QR del local"){ $("#entAWrap").hidden=false; $("#entA").checked=true; $("#offer").hidden=true; $("#entSet").hidden=true; }
 
 // Horario fijo (desde 06/11/26): solo viernes, sábado y domingo de 6 a 11 pm.
-const CERRADO = ![5,6,0].includes(today);
+const PRUEBA=/[?&]prueba/.test(location.search); const CERRADO = !PRUEBA && ![5,6,0].includes(today);
 (function status(){
   const openDays={5:[18,23],6:[18,23],0:[18,23]};
   const el=$("#status"), sp=el.querySelector("span"), r=openDays[today];
@@ -1127,6 +1127,7 @@ $("#form").addEventListener("submit", () => {
   const prem = cart.find(l => esPremio(l.n)); if (prem) extra.push("🎁 PREMIO TARJETA NEXO: " + prem.n.slice(PREMIO_TXT.length) + " (va en $0)");
   if (tel.length === 10) extra.push(monto >= MIN_SELLO ? "🦆 Tarjeta Nexo: suma 1 sello" : "🦆 Tarjeta Nexo: no suma sello (menos de $150)");
   const iIns = L.findIndex(x => /^(Llegó por|Ref\. )/.test(x)); L.splice(iIns >= 0 ? iIns : L.length, 0, ...extra);
+  if (typeof PRUEBA !== "undefined" && PRUEBA) L.unshift("⚠️ PEDIDO DE PRUEBA · NO PREPARAR");
   text = L.join("\n"); $("#ticket").textContent = text;
   const w = $("#waLink"); if (w.href.startsWith(COCINA_URL) && COCINA_URL) w.href = `${COCINA_URL}?n=${encodeURIComponent(nombre)}&t=${encodeURIComponent(text)}`; else w.href = `https://wa.me/${WA}?text=${encodeURIComponent(text)}`;
   // tarjeta en la pantalla final
