@@ -1067,6 +1067,7 @@ async function buscarDir(t) {
     if (j[0] && $("#dir").value.trim() === t) {
       irA(+j[0].lat, +j[0].lon, 17); MAPPOS = { lat: +(+j[0].lat).toFixed(6), lng: +(+j[0].lon).toFixed(6) }; mapTocado = true;
       $("#mapNote").textContent = "Te llevamos cerca de tu dirección. Mueve el mapa para dejar el pin justo en tu casa.";
+      if (!zonaManual && !$("#zona").value) { const hit = ZONA_KW.find(([re]) => re.test(j[0].display_name || "")); if (hit) { $("#zona").value = hit[1]; notaZona(); drawCart() } }
     } else if (!j[0]) $("#mapNote").textContent = "No encontramos esa calle en el mapa. Mueve el mapa hasta tu casa o usa tu ubicación.";
   } catch (e) { }
 }
