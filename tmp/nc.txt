@@ -1,0 +1,196 @@
+/**
+ * Nexo Clientes · cerebro de la página de pedidos (cuentas de cliente + Tarjeta Nexo).
+ * Proyecto independiente de Apps Script; trabaja sobre la hoja Finanzas_Integradas_JARV. Usa las pestañas:
+ *   Clientes_Nexo    (se crea sola)  · un renglón por cliente
+ *   Lealtad_Premios  (se crea sola)  · niveles internos y premios de la semana (se pueden editar ahí)
+ *   Nexo_Ventas      (ya existe)     · de aquí se confirman los sellos cuando la Caja cobra
+ * Publicar: Implementar > Nueva implementación > Aplicación web > Ejecutar como: yo · Acceso: Cualquier usuario.
+ */
+const HOJA_CLIENTES = 'Clientes_Nexo';
+const HOJA_PREMIOS = 'Lealtad_Premios';
+const MIN_SELLO = 150, META = 10, DIAS_REINICIO = 90, DIAS_PENDIENTE = 3;
+const DESDE = new Date('2026-11-10T07:00:00Z').getTime();
+const COLS = ['tel', 'nombre', 'creado', 'direcciones', 'sellos', 'gastado', 'ultimo', 'pendientes', 'canjes', 'token', 'reinicios', 'notas'];
+
+function doGet(e) { return responder(e && e.parameter || {}); }
+function doPost(e) {
+  let p = {};
+  try { p = JSON.parse(e.postData.contents || '{}'); } catch (x) { p = e && e.parameter || {}; }
+  return responder(p);
+}
+function responder(p) {
+  let out;
+  try {
+    const a = String(p.a || '');
+    if (a === 'buscar') out = buscar(p);
+    else if (a === 'entrar') out = entrar(p);
+    else if (a === 'pedido') out = pedido(p);
+    else if (a === 'ping') out = { ok: true, t: Date.now() };
+    else out = { ok: false, error: 'accion' };
+  } catch (err) { out = { ok: false, error: String(err && err.message || err) }; }
+  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ---------- utilidades ----------
+const SHEET_ID = '1bOwgoAUq8UmHC4mbz0ea7rdp21FP7ig-j8lYXqFNlBU';
+function ss() { return SpreadsheetApp.openById(SHEET_ID); }
+function hojaClientes() {
+  let h = ss().getSheetByName(HOJA_CLIENTES);
+  if (!h) { h = ss().insertSheet(HOJA_CLIENTES); h.getRange(1, 1, 1, COLS.length).setValues([COLS]).setFontWeight('bold'); h.setFrozenRows(1); h.getRange('A:A').setNumberFormat('@'); }
+  return h;
+}
+function hojaPremios() {
+  let h = ss().getSheetByName(HOJA_PREMIOS);
+  if (!h) {
+    h = ss().insertSheet(HOJA_PREMIOS);
+    h.getRange(1, 1, 4, 4).setValues([
+      ['Nivel (interno, no se muestra)', 'Gastado desde ($)', 'Opción 1', 'Opción 2'],
+      ['Pato', 0, 'Frappé clásico', 'Papas francesas u onduladas'],
+      ['Pato Plata', 2500, 'Boneless 250 g', 'Tenders con papas gajo'],
+      ['Pato Oro', 3500, 'Combo Antojo', '12 alitas'],
+    ]);
+    h.getRange(1, 1, 1, 4).setFontWeight('bold'); h.setFrozenRows(1);
+  }
+  return h;
+}
+const limpiaTel = t => String(t || '').replace(/\D/g, '').slice(-10);
+const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zñ ]/g, ' ').replace(/\s+/g, ' ').trim();
+const primerNombre = s => { const n = String(s || '').trim().split(/\s+/)[0] || ''; return n.charAt(0).toLocaleUpperCase('es-MX') + n.slice(1).toLocaleLowerCase('es-MX'); };
+const J = (s, d) => { try { return s ? JSON.parse(s) : d; } catch (e) { return d; } };
+function leerTodos() {
+  const h = hojaClientes(), n = h.getLastRow();
+  if (n < 2) return [];
+  return h.getRange(2, 1, n - 1, COLS.length).getValues().map((r, i) => {
+    const o = { fila: i + 2 }; COLS.forEach((k, j) => o[k] = r[j]);
+    o.tel = limpiaTel(o.tel); o.direcciones = J(o.direcciones, []); o.pendientes = J(o.pendientes, []); o.canjes = J(o.canjes, []);
+    o.sellos = Number(o.sellos) || 0; o.gastado = Number(o.gastado) || 0; o.ultimo = Number(o.ultimo) || 0; o.reinicios = Number(o.reinicios) || 0;
+    return o;
+  });
+}
+function buscarFila(tel) { return leerTodos().find(c => c.tel === tel) || null; }
+function guardar(c) {
+  const h = hojaClientes();
+  const fila = [c.tel, c.nombre, c.creado || Date.now(), JSON.stringify(c.direcciones || []), c.sellos || 0, Math.round((c.gastado || 0) * 100) / 100, c.ultimo || '', JSON.stringify(c.pendientes || []), JSON.stringify(c.canjes || []), c.token || '', c.reinicios || 0, c.notas || ''];
+  if (c.fila) h.getRange(c.fila, 1, 1, COLS.length).setValues([fila]);
+  else { h.appendRow(fila); c.fila = h.getLastRow(); h.getRange(c.fila, 1).setNumberFormat('@').setValue(c.tel); }
+}
+function vigente(c) { // reinicio por 90 días sin pedir
+  if (c.ultimo && Date.now() - c.ultimo > DIAS_REINICIO * 864e5 && c.sellos > 0) { c.sellos = 0; c.gastado = 0; c.reinicios++; c.ultimo = 0; return true; }
+  return false;
+}
+function niveles() { return hojaPremios().getRange(2, 1, Math.max(1, hojaPremios().getLastRow() - 1), 4).getValues().filter(r => r[0]).map(r => ({ n: r[0], desde: Number(r[1]) || 0, op: [r[2], r[3]].filter(String) })); }
+function opcionesPremio(gastado) { const L = niveles().sort((a, b) => a.desde - b.desde); let nv = L[0]; L.forEach(x => { if (gastado >= x.desde) nv = x; }); return nv ? nv.op : []; }
+function yaComproAntes(tel) { // clientes de antes (Clientes_Digitales) no reciben bienvenida
+  const h = ss().getSheetByName('Clientes_Digitales'); if (!h || h.getLastRow() < 2) return false;
+  return h.getRange(2, 1, h.getLastRow() - 1, 1).getValues().some(r => limpiaTel(r[0]) === tel);
+}
+function recortar(d) { // dirección sin número para quien no tiene el token
+  return String(d && d.texto || '').replace(/#?\s*\d+[a-zA-Z]?/g, '').replace(/\s{2,}/g, ' ').replace(/\s+,/g, ',').trim();
+}
+function vista(c, completo) {
+  const pend = (c.pendientes || []).filter(p => !p.premio).length;
+  const lleno = c.sellos >= META;
+  return {
+    ok: true, existe: true, nombre: primerNombre(c.nombre), sellos: Math.min(c.sellos, META), pendientes: pend,
+    premio: lleno && !(c.pendientes || []).some(p => p.premio) ? opcionesPremio(c.gastado) : null,
+    premioPedido: (c.pendientes || []).some(p => p.premio) || false,
+    bienvenida: !/compr|antes/i.test(String(c.notas || '')),
+    direcciones: (c.direcciones || []).slice(-3).reverse().map(d => completo ? d : { texto: recortar(d), zona: d.zona, oculta: true }),
+    completo: !!completo,
+  };
+}
+function token() { return Utilities.getUuid().replace(/-/g, '').slice(0, 20); }
+
+// ---------- acciones ----------
+// buscar: {tel, tk?} → si el tk coincide, datos completos; si no, solo primer nombre y sellos.
+function buscar(p) {
+  const tel = limpiaTel(p.tel); if (tel.length !== 10) return { ok: false, error: 'tel' };
+  const c = buscarFila(tel);
+  if (!c) return { ok: true, existe: false, bienvenida: !yaComproAntes(tel) };
+  if (vigente(c)) guardar(c);
+  return vista(c, p.tk && c.token && p.tk === c.token);
+}
+// entrar: {tel, nombre, tk?} → crea la cuenta o reconoce al cliente (nombre debe coincidir) y devuelve token.
+function entrar(p) {
+  const tel = limpiaTel(p.tel), nombre = String(p.nombre || '').trim().slice(0, 60);
+  if (tel.length !== 10) return { ok: false, error: 'tel' };
+  if (norm(nombre).length < 2) return { ok: false, error: 'nombre' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    let c = buscarFila(tel);
+    if (!c) {
+      const bien = !yaComproAntes(tel);
+      c = { tel, nombre, creado: Date.now(), direcciones: [], sellos: 0, gastado: 0, ultimo: 0, pendientes: [], canjes: [], token: token(), reinicios: 0, notas: bien ? '' : 'cliente de antes' };
+      guardar(c);
+      const v = vista(c, true); v.nuevo = true; v.tk = c.token; return v;
+    }
+    if (vigente(c)) guardar(c);
+    const coincide = (p.tk && p.tk === c.token) || norm(nombre).split(' ')[0] === norm(c.nombre).split(' ')[0];
+    if (!coincide) { const v = vista(c, false); v.nombreNoCoincide = true; return v; }
+    if (!c.token) { c.token = token(); guardar(c); }
+    const v = vista(c, true); v.tk = c.token; return v;
+  } finally { lock.releaseLock(); }
+}
+// pedido: {tel, nombre, tk, ref, monto (productos sin envío), dir?:{texto, zona, ref, lat, lng}, premio?: 'opción'}
+// Deja el sello como PENDIENTE; se confirma cuando la Caja cobra (ver confirmarSellos).
+function pedido(p) {
+  const tel = limpiaTel(p.tel); if (tel.length !== 10) return { ok: false, error: 'tel' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    let c = buscarFila(tel);
+    if (!c) { const nom = String(p.nombre || '').trim().slice(0, 60) || 'Cliente'; c = { tel, nombre: nom, creado: Date.now(), direcciones: [], sellos: 0, gastado: 0, ultimo: 0, pendientes: [], canjes: [], token: '', reinicios: 0, notas: yaComproAntes(tel) ? 'cliente de antes' : '' }; }
+    const completo = p.tk && p.tk === c.token;
+    vigente(c);
+    const ref = String(p.ref || '').toUpperCase().slice(0, 12), monto = Math.max(0, Number(p.monto) || 0);
+    c.pendientes = (c.pendientes || []).filter(x => Date.now() - x.at < DIAS_PENDIENTE * 864e5 && x.ref !== ref);
+    const premio = p.premio && c.sellos >= META ? String(p.premio).slice(0, 60) : '';
+    c.pendientes.push({ ref, at: Date.now(), monto, premio });
+    if (completo && p.dir && p.dir.texto) {
+      const d = { texto: String(p.dir.texto).slice(0, 160), zona: String(p.dir.zona || '').slice(0, 40), ref: String(p.dir.ref || '').slice(0, 120), lat: Number(p.dir.lat) || null, lng: Number(p.dir.lng) || null, at: Date.now() };
+      c.direcciones = (c.direcciones || []).filter(x => norm(x.texto) !== norm(d.texto)); c.direcciones.push(d); c.direcciones = c.direcciones.slice(-5);
+    }
+    if (!/compr/i.test(String(c.notas || ''))) c.notas = (c.notas ? c.notas + '; ' : '') + 'compró';
+    guardar(c);
+    const v = vista(c, completo); v.suma = monto >= MIN_SELLO; v.falta = Math.max(0, MIN_SELLO - monto); return v;
+  } finally { lock.releaseLock(); }
+}
+
+// ---------- confirmación desde la Caja ----------
+// Corre sola cada 5 minutos (instalar con instalarDisparador). Lee Nexo_Ventas: cuando la Caja cobra un pedido
+// de la página ("Página <REF>"), confirma el sello pendiente con esa referencia.
+function confirmarSellos() {
+  const props = PropertiesService.getScriptProperties();
+  const hv = ss().getSheetByName('Nexo_Ventas'); if (!hv) return;
+  const desde = Number(props.getProperty('ultimaFilaVentas')) || 1, hasta = hv.getLastRow();
+  if (hasta <= desde) return;
+  const filas = hv.getRange(desde + 1, 1, hasta - desde, 7).getValues();
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const todos = leerTodos(); const porRef = {};
+    todos.forEach(c => (c.pendientes || []).forEach(p => { if (p.ref) porRef[p.ref] = c; }));
+    const tocados = new Set();
+    filas.forEach(r => {
+      const desc = String(r[2] || ''), total = Number(String(r[5]).replace(/[$,]/g, '')) || 0, nota = String(r[6] || '');
+      const m = desc.match(/\b([NRLW][0-9A-F]{4,8})\b/); if (!m) return;
+      const c = porRef[m[1]]; if (!c) return;
+      const i = c.pendientes.findIndex(p => p.ref === m[1]); if (i < 0) return;
+      const p = c.pendientes.splice(i, 1)[0];
+      if (/cancel/i.test(nota)) { tocados.add(c); return; }
+      vigente(c);
+      if (p.premio) { c.canjes.push({ at: Date.now(), premio: p.premio, sellos: c.sellos, gastado: c.gastado }); c.sellos = 0; c.gastado = 0; }
+      const monto = Math.min(p.monto || 0, total || p.monto || 0);
+      if (monto >= MIN_SELLO) { c.sellos += 1; c.gastado += monto; c.ultimo = Date.now(); }
+      tocados.add(c);
+    });
+    tocados.forEach(guardar);
+    props.setProperty('ultimaFilaVentas', String(hasta));
+  } finally { lock.releaseLock(); }
+}
+function instalarDisparador() {
+  ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'confirmarSellos').forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('confirmarSellos').timeBased().everyMinutes(5).create();
+  // empieza a leer desde la última venta de hoy (no cuenta ventas viejas)
+  const hv = ss().getSheetByName('Nexo_Ventas');
+  PropertiesService.getScriptProperties().setProperty('ultimaFilaVentas', String(hv ? hv.getLastRow() : 1));
+  hojaClientes(); hojaPremios();
+}
