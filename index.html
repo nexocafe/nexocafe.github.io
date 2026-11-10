@@ -750,7 +750,7 @@ $("#form").addEventListener("submit",e=>{
   e.preventDefault();
   const nombre=$("#nombre").value.trim(), tel=$("#tel").value.replace(/\D/g,"").slice(-10), dir=$("#dir").value.trim();
   const t0=totals();
-  const errs=[]; if(!nombre)errs.push("tu nombre"); if(!t0.aqui&&tel.length<10)errs.push("un teléfono de 10 dígitos"); if(t0.dom&&!dir)errs.push("tu dirección"); if(t0.dom&&!t0.zid)errs.push("tu zona de entrega");
+  const errs=[]; if(!nombre)errs.push("tu nombre"); if(!t0.aqui&&tel.length<10)errs.push("un teléfono de 10 dígitos"); if(t0.dom&&!dir)errs.push("tu dirección"); if(t0.dom&&!t0.zid)errs.push("marcar tu casa en el mapa (para calcular el envío)");
   if(errs.length){const el=$("#formErr");el.textContent="Falta "+errs.join(", ")+".";el.hidden=false;return}
   const conTel=!t0.aqui&&tel.length===10; const nuevo=conTel&&esNuevo(tel); /* en el local no hay bienvenida */ const t=totals(nuevo); const h=huella(tel);
   const pago=document.querySelector("input[name=pago]:checked").value, cambio=$("#cambio").value.trim(), notas=$("#notas").value.trim(), ref=$("#ref").value.trim();
@@ -879,6 +879,7 @@ const s=document.getElementById('barSum'); if(s){const w=document.createElement(
 .mapinline{display:grid;gap:8px;background:var(--bg);border:1.5px solid var(--or);border-radius:12px;padding:10px}
 .maphead{display:flex;justify-content:space-between;align-items:center;gap:8px}.maphead b{color:var(--or);font-size:14.5px}
 .mapyo{background:var(--or);color:var(--ink);border:0;border-radius:999px;padding:8px 12px;font:inherit;font-weight:700;font-size:13px;cursor:pointer}
+#zona{display:none!important}
 </style>
 <script>
 // ===== Cuentas de cliente + Tarjeta Nexo + mapa (página v2, 11/2026) =====
@@ -1022,9 +1023,9 @@ let MAP = null, leafletCarga = null, mapTocado = false, geoTimer = null, moviend
   saved.addEventListener("click", e => {
     const b = e.target.closest("[data-di]"); if (!b) return; const i = b.dataset.di;
     saved.querySelectorAll("[data-di]").forEach(x => x.classList.toggle("sel", x === b));
-    if (i === "new") { $("#dir").value = ""; $("#ref").value = ""; MAPPOS = null; mapTocado = false; $("#dir").focus(); return }
+    if (i === "new") { $("#dir").value = ""; $("#ref").value = ""; MAPPOS = null; mapTocado = false; $("#zona").value = ""; zonaManual = false; notaZona(); drawCart(); $("#dir").focus(); return }
     const d = CLI.data.direcciones[+i]; $("#dir").value = d.texto || ""; $("#ref").value = d.ref || "";
-    if (d.lat && d.lng) { MAPPOS = { lat: d.lat, lng: d.lng }; mapTocado = true; irA(d.lat, d.lng, 18) }
+    if (d.lat && d.lng) { MAPPOS = { lat: d.lat, lng: d.lng }; mapTocado = true; irA(d.lat, d.lng, 18); ubicar() }
     const z = Object.keys(ZONAS).find(k => ZONAS[k].n === d.zona); if (z) { $("#zona").value = z; zonaManual = true; notaZona() } else $("#dir").dispatchEvent(new Event("input"));
     drawCart();
   });
@@ -1051,7 +1052,7 @@ async function asegurarMapa() {
     const c = MAPPOS || { lat: 21.4446, lng: -104.9014 };
     MAP = L.map("mapBox", { zoomControl: true, attributionControl: true, scrollWheelZoom: false }).setView([c.lat, c.lng], MAPPOS ? 18 : 15);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(MAP);
-    MAP.on("moveend", () => { if (moviendoCodigo) { moviendoCodigo = false; return } const p = MAP.getCenter(); MAPPOS = { lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6) }; mapTocado = true; $("#mapNote").textContent = "✅ Pin puesto. Si no es tu casa, mueve el mapa."; if (!$("#dir").value.trim()) llenarDir() });
+    MAP.on("moveend", () => { if (moviendoCodigo) { moviendoCodigo = false; return } const p = MAP.getCenter(); MAPPOS = { lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6) }; mapTocado = true; $("#mapNote").textContent = "✅ Pin puesto. Si no es tu casa, mueve el mapa."; ubicar() });
   }
   setTimeout(() => MAP && MAP.invalidateSize(), 150);
 }
@@ -1067,7 +1068,7 @@ async function buscarDir(t) {
     if (j[0] && $("#dir").value.trim() === t) {
       irA(+j[0].lat, +j[0].lon, 17); MAPPOS = { lat: +(+j[0].lat).toFixed(6), lng: +(+j[0].lon).toFixed(6) }; mapTocado = true;
       $("#mapNote").textContent = "Te llevamos cerca de tu dirección. Mueve el mapa para dejar el pin justo en tu casa.";
-      if (!zonaManual && !$("#zona").value) { const hit = ZONA_KW.find(([re]) => re.test(j[0].display_name || "")); if (hit) { $("#zona").value = hit[1]; notaZona(); drawCart() } }
+      ubicar();
     } else if (!j[0]) $("#mapNote").textContent = "No encontramos esa calle en el mapa. Mueve el mapa hasta tu casa o usa tu ubicación.";
   } catch (e) { }
 }
@@ -1078,14 +1079,22 @@ function usarMiUbicacion() {
     await asegurarMapa(); MAP.setView([p.coords.latitude, p.coords.longitude], 18);
   }, () => { $("#mapNote").textContent = "No nos diste permiso de ubicación. Escribe tu dirección o mueve el mapa." }, { enableHighAccuracy: true, timeout: 12000 });
 }
-async function llenarDir() {
-  if (!MAPPOS) return;
-  try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=18&addressdetails=1&lat=${MAPPOS.lat}&lon=${MAPPOS.lng}`); const j = await r.json(); const a = j.address || {};
-    const txt = [[a.road, a.house_number].filter(Boolean).join(" "), a.neighbourhood || a.suburb, a.town || a.city || a.village].filter(Boolean).join(", ");
-    if (txt && !$("#dir").value.trim()) { $("#dir").value = txt; if (!zonaManual) { const hit = ZONA_KW.find(([re]) => re.test(txt)); if (hit) { $("#zona").value = hit[1]; notaZona(); drawCart() } } $("#mapNote").textContent = "✅ Pin puesto. Revisa que la dirección tenga tu número de casa." }
-  } catch (e) { }
+// Zona de envío automática según el pin (el cliente no la elige)
+const NEXO_LL = [21.4446, -104.9014];
+function distKm(a, b) { const R = 6371, t = x => x * Math.PI / 180, dl = t(b[0] - a[0]), dg = t(b[1] - a[1]); const h = Math.sin(dl / 2) ** 2 + Math.cos(t(a[0])) * Math.cos(t(b[0])) * Math.sin(dg / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)) }
+let ubTimer = null;
+function ubicar() { clearTimeout(ubTimer); ubTimer = setTimeout(ubicarYa, 500) }
+async function ubicarYa() {
+  if (!MAPPOS) return; const km = distKm(NEXO_LL, [MAPPOS.lat, MAPPOS.lng]); let txt = "", a = {};
+  try { const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=18&addressdetails=1&lat=${MAPPOS.lat}&lon=${MAPPOS.lng}`); const j = await r.json(); a = j.address || {}; txt = j.display_name || "" } catch (e) { }
+  let z = null; const hit = ZONA_KW.find(([re]) => re.test(txt));
+  if (hit && hit[1] !== "xal") z = hit[1]; else if (km <= 4.5) z = "xal"; else if (hit && hit[1] === "xal" && km <= 7) z = "xal"; else z = "otra";
+  $("#zona").value = z; zonaManual = true; notaZona(); drawCart();
+  const calle = [[a.road, a.house_number].filter(Boolean).join(" "), a.neighbourhood || a.suburb, a.town || a.city || a.village].filter(Boolean).join(", ");
+  if (calle && !$("#dir").value.trim()) { $("#dir").value = calle; $("#mapNote").textContent = "✅ Pin puesto. Revisa que la dirección tenga tu número de casa." }
 }
+const _notaZona = notaZona;
+notaZona = function () { _notaZona(); if (!$("#zona").value) $("#zonaNote").textContent = "Escribe tu dirección o marca tu casa en el mapa y calculamos tu envío." };
 const _drawCart = drawCart;
 drawCart = function () { _drawCart(); prefill(); dirSaved(); if (!$("#dirWrap").hidden) asegurarMapa() };
 
@@ -1136,5 +1145,7 @@ $("#form").addEventListener("submit", () => {
     dir: t.dom ? { texto: $("#dir").value.trim(), zona: t.zona ? t.zona.n : "", ref: $("#ref").value.trim(), lat: mapTocado && MAPPOS ? MAPPOS.lat : null, lng: mapTocado && MAPPOS ? MAPPOS.lng : null } : null })
     .then(r => { if (r && r.ok) { pint(r); if (CLI && CLI.tel === tel) { CLI.data = { ...(CLI.data || {}), ...r }; cliSave(); $("#dirSaved").innerHTML = ""; cliBar() } } }).catch(() => { });
 });
+
+try { const f = document.querySelector(".foot"); if (f) { const v = document.createElement("span"); v.style.opacity = ".4"; v.textContent = "v6"; f.appendChild(v) } } catch (e) { }
 </script>
 </body></html>
