@@ -400,7 +400,7 @@ const SALSAS = ["Buffalo","BBQ","BBQ hot","Mango habanero","Cajún","Pimienta-li
 const O = {
   salsa:{key:"Salsa",type:"one",opts:SALSAS},
   mitad:{key:"Salsa",type:"upto2",opts:SALSAS,hint:"Puedes elegir 2 para mitad y mitad"},
-  carne:{key:"Carne",type:"one",opts:["Asado","Chorizo"]},
+  carne:{key:"Carne",type:"one",opts:["Asada","Chorizo"]},
   bowlBase:{key:"Base",type:"one",opts:["Arroz","Papas francesas"]},
   bowlSalsa:{key:"Aderezos",type:"exact2",opts:["Ranch","Chipotle","Queso amarillo"],hint:"Elige 2"},
   soda:{key:"Sabor",type:"one",opts:["Fresa","Limón","Maracuyá","Manzana verde","Mora azul"]},
@@ -464,7 +464,7 @@ const MENU = [
   {n:"Tender bowl",p:120,d:"Chicken tenders en arroz o papas, 2 aderezos y jalapeños",o:["bowlBase","bowlSalsa"],im:"tender",out:1},
   
   {n:"Tenders con papas gajo",p:95,d:"200 g de chicken tenders crujientes bañados en la salsa que elijas, acompañados de papas gajo doraditas",o:["salsa"],im:"tender",out:1},
-  {n:"Nachos con carne",p:85,d:"Asado o chorizo",o:["carne"],im:"nachos"},
+  {n:"Nachos con carne",p:85,d:"Carne asada o chorizo",o:["carne"],im:"nachos"},
   {n:"Papas francesas",p:49,im:"papas"},{n:"Papas onduladas",p:49,d:"Papas onduladas crujientes, orden de 250 g",im:"papas"},{n:"Papas gajo",p:69},{n:"Papa boneless",p:139,o:["salsa"]},
   {n:"Aros de cebolla (12 pzas)",p:55},{n:"Dedos de queso (6 pzas)",p:75},
  ]},
