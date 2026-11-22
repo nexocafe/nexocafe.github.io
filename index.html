@@ -433,8 +433,8 @@ const O = {
 // day: 0=dom … 3=mié, 4=jue, 5=vie
 const MENU = [
  {id:"promos",name:"Promos del día",img:"p_vie",sub:"Solo el día que toca",items:[
-  {n:"Viernes: 2 frappés clásicos",p:95,day:5,im:"p_mie",pr:1},
-  {n:"Sábado: crepa clásica + frappé clásico",p:99,day:6,d:"Crepa clásica (chocolate, nuez y chantilly) + frappé clásico",im:"p_jue",pr:1},
+  {n:"Viernes: 2 frappés clásicos",p:95,day:5,im:"p_mie",pr:1,out:1},
+  {n:"Sábado: crepa clásica + frappé clásico",p:99,day:6,d:"Crepa clásica (chocolate, nuez y chantilly) + frappé clásico",im:"p_jue",pr:1,out:1},
   {n:"Domingo: 12 alitas + papas francesas",p:145,day:0,o:["mitad"],im:"p_vie",pr:1},
  ]},
  {id:"sinbebida",name:"Combos sin bebida",img:"alitas",sub:"Todo armado, sin bebida · salsa extra $15",items:[
@@ -483,10 +483,10 @@ const MENU = [
   {n:"Crepa Gansito",p:79,d:"Mermelada de fresa, Philadelphia, Gansito",out:1},
  ]},
  {id:"frias",name:"Frappés y bebidas frías",img:"fnutella",sub:"Frappés, ice lattes, smoothies y malteadas",items:[
-  {n:"Frappé Nutella",p:75,im:"fnutella"},
+  {n:"Frappé Nutella",p:75,im:"fnutella",out:1},
   {n:"Ice latte brown sugar chocolate",p:89,d:"Evaporada, azúcar morena, leche y cacao",im:"brown"},
-  {n:"Frappé clásico",p:59,im:"frap2"},{n:"Frappé rompope",p:69},{n:"Frappé caramelo",p:69},{n:"Frappé Oreo",p:69},{n:"Frappé moka",p:69},{n:"Frappé mazapán",p:69},
-  {n:"Frappé Snickers",p:75},{n:"Frappé chai de guayaba",p:79},
+  {n:"Frappé clásico",p:59,im:"frap2",out:1},{n:"Frappé rompope",p:69,out:1},{n:"Frappé caramelo",p:69,out:1},{n:"Frappé Oreo",p:69,out:1},{n:"Frappé moka",p:69,out:1},{n:"Frappé mazapán",p:69,out:1},
+  {n:"Frappé Snickers",p:75,out:1},{n:"Frappé chai de guayaba",p:79,out:1},
   {n:"Ice latte español",p:69},{n:"Ice latte caramelo",p:69},{n:"Ice latte moka",p:69},{n:"Ice latte rompope",p:69},
   {n:"Ice latte fresa",p:79},{n:"Ice latte Oreo",p:79},{n:"Ice latte peanut & honey",p:85},
   {n:"Cold brew",p:89,im:"coldbrew",d:"Elige tu sabor: 3 leches, español, caramelo, cajeta, moka, rompope u Oreo",o:["cb"]},
